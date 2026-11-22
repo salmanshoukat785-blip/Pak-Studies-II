@@ -1,1 +1,59 @@
+name: Build APK
 
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # If a .zip is uploaded in the repo root, unzip it and build the project inside it.
+      # Otherwise build the project that is already in the repo.
+      - name: Locate project
+        run: |
+          ZIP=$(ls -t *.zip 2>/dev/null | head -n1 || true)
+          if [ -n "$ZIP" ]; then
+            echo "Found zip: $ZIP"
+            rm -rf _project
+            mkdir _project
+            unzip -q "$ZIP" -d _project
+            SETTINGS=$(find _project -name settings.gradle.kts | head -n1)
+            if [ -z "$SETTINGS" ]; then
+              echo "settings.gradle.kts not found inside $ZIP"
+              exit 1
+            fi
+            echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+          else
+            if [ ! -f settings.gradle.kts ]; then
+              echo "No zip and no settings.gradle.kts in repo root"
+              exit 1
+            fi
+            echo "PROJECT_DIR=." >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pak-Studies-II-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
